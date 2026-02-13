@@ -203,38 +203,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Inventors Section */}
-      <section className="py-20 bg-muted/30">
-        <div className="container mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">
-              Meet the <span className="gradient-text">Inventors</span>
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              The brilliant minds behind this innovative platform
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[
-              { name: 'Noman Ishfaq', role: 'Co-Founder & Lead Developer' },
-              { name: 'M Burhan Shahzad', role: 'Co-Founder & AI Engineer' },
-              { name: 'Shajar Abbas', role: 'Co-Founder & Product Designer' }
-            ].map((inventor, i) => (
-              <div key={i} className="bg-card rounded-2xl p-8 border border-border text-center card-hover">
-                <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                  <span className="text-3xl font-bold text-primary">
-                    {inventor.name.split(' ').map(n => n[0]).join('')}
-                  </span>
-                </div>
-                <h3 className="text-xl font-bold mb-1">{inventor.name}</h3>
-                <p className="text-muted-foreground">{inventor.role}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* CTA Section */}
       <section className="py-20">
         <div className="container mx-auto px-6">
