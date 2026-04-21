@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,6 +13,7 @@ import { Bell, User, LogOut, Settings } from 'lucide-react';
 
 export function TopNavbar() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <header className="h-16 border-b border-border bg-card px-6 flex items-center justify-between">
@@ -48,7 +50,7 @@ export function TopNavbar() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate('/dashboard/settings')}>
               <Settings className="w-4 h-4 mr-2" />
               Settings
             </DropdownMenuItem>

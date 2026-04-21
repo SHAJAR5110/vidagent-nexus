@@ -1,29 +1,25 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Lead, Video } from '@/types/data';
 import {
   getLeads, getVideos, saveVideo, updateVideo,
-  getApiKey, saveApiKey, addActivity,
+  getApiKey, addActivity,
 } from '@/services/dataService';
 import { generateScriptForLead } from '@/services/scriptGenerationService';
 import { submitVideoPrompt, pollSession, pollVideo } from '@/services/videoGenerationService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
 import {
   Table, TableBody, TableCell, TableHead,
   TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
   Video as VideoIcon, Loader2, CheckCircle2, Clock,
-  AlertCircle, Sparkles, Key, Play, ChevronDown, ChevronUp,
+  AlertCircle, Sparkles, Play, ChevronDown, ChevronUp, Settings,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -33,6 +29,7 @@ type ScriptMap = Record<string, string>; // leadId → script
 
 export default function CreateVideoPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Data
   const [validLeads, setValidLeads] = useState<Lead[]>([]);
@@ -41,10 +38,6 @@ export default function CreateVideoPage() {
 
   // Campaign config
   const [campaignDescription, setCampaignDescription] = useState('');
-  const [avatarId, setAvatarId] = useState('03b55fe9b60a4584a0d5b507bcba060e');
-  const [voiceId, setVoiceId] = useState('f255114308d841858d1ca9230bf83285');
-  const [geminiKeyField, setGeminiKeyField] = useState('');
-  const [heygenKeyField, setHeygenKeyField] = useState('');
 
   // Script step
   const [scripts, setScripts] = useState<ScriptMap>({});
@@ -55,33 +48,18 @@ export default function CreateVideoPage() {
   // Video step
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // API key dialogs
-  const [geminiDialog, setGeminiDialog] = useState(false);
-  const [geminiKeyInput, setGeminiKeyInput] = useState('');
-  const [heygenDialog, setHeygenDialog] = useState(false);
-  const [heygenKeyInput, setHeygenKeyInput] = useState('');
-  const [isSavingKey, setIsSavingKey] = useState(false);
-
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Load data ────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     if (!user) return;
-    const [leads, vids, savedGeminiKey, savedHeygenKey, savedAvatarId, savedVoiceId] = await Promise.all([
+    const [leads, vids] = await Promise.all([
       getLeads(user.id),
       getVideos(user.id),
-      getApiKey(user.id, 'gemini'),
-      getApiKey(user.id, 'heygen'),
-      getApiKey(user.id, 'heygen_avatar_id'),
-      getApiKey(user.id, 'heygen_voice_id'),
     ]);
     setValidLeads(leads.filter(l => l.status === 'valid'));
     setVideos(vids);
-    if (savedGeminiKey) setGeminiKeyField(savedGeminiKey);
-    if (savedHeygenKey) setHeygenKeyField(savedHeygenKey);
-    if (savedAvatarId) setAvatarId(savedAvatarId);
-    if (savedVoiceId) setVoiceId(savedVoiceId);
   }, [user]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -160,19 +138,32 @@ export default function CreateVideoPage() {
     );
   };
 
+  // ── Settings check helper ────────────────────────────────────────────────────
+
+  const requireKey = async (service: string, label: string): Promise<string | null> => {
+    const key = await getApiKey(user!.id, service);
+    if (!key) {
+      toast.error(`${label} is missing`, {
+        description: 'Add it in Settings before proceeding.',
+        action: {
+          label: 'Open Settings',
+          onClick: () => navigate('/dashboard/settings'),
+        },
+      });
+      return null;
+    }
+    return key;
+  };
+
   // ── Script generation (Gemini) ───────────────────────────────────────────────
 
   const handleGenerateScripts = async () => {
     if (selectedIds.size === 0) return toast.error('Select at least one lead');
     if (!campaignDescription.trim()) return toast.error('Enter a campaign description first');
 
-    const key = geminiKeyField.trim() || await getApiKey(user!.id, 'gemini');
-    if (!key) { setGeminiDialog(true); return; }
-    // Persist if it's new/changed
-    const saved = await getApiKey(user!.id, 'gemini');
-    if (geminiKeyField.trim() && geminiKeyField.trim() !== saved) {
-      await saveApiKey(user!.id, 'gemini', geminiKeyField.trim());
-    }
+    const key = await requireKey('gemini', 'Gemini API Key');
+    if (!key) return;
+
     runScriptGeneration(Array.from(selectedIds), campaignDescription, key);
   };
 
@@ -204,21 +195,24 @@ export default function CreateVideoPage() {
     const toSubmit = Array.from(selectedIds).filter(id => scripts[id]);
     if (toSubmit.length === 0) return toast.error('Generate scripts first');
 
-    const key = heygenKeyField.trim() || await getApiKey(user!.id, 'heygen');
-    if (!key) { setHeygenDialog(true); return; }
-    const saved = await getApiKey(user!.id, 'heygen');
-    if (heygenKeyField.trim() && heygenKeyField.trim() !== saved) {
-      await saveApiKey(user!.id, 'heygen', heygenKeyField.trim());
-    }
-    runHeygenSubmission(toSubmit, key);
+    const heygenKey = await requireKey('heygen', 'HeyGen API Key');
+    if (!heygenKey) return;
+
+    const avatarId = await requireKey('heygen_avatar_id', 'HeyGen Avatar ID');
+    if (!avatarId) return;
+
+    const voiceId = await requireKey('heygen_voice_id', 'HeyGen Voice ID');
+    if (!voiceId) return;
+
+    runHeygenSubmission(toSubmit, heygenKey, avatarId, voiceId);
   };
 
-  const runHeygenSubmission = async (leadIds: string[], apiKey: string) => {
-    // Persist avatar/voice IDs for next session
-    await Promise.all([
-      avatarId && saveApiKey(user!.id, 'heygen_avatar_id', avatarId),
-      voiceId && saveApiKey(user!.id, 'heygen_voice_id', voiceId),
-    ]);
+  const runHeygenSubmission = async (
+    leadIds: string[],
+    apiKey: string,
+    avatarId: string,
+    voiceId: string,
+  ) => {
     setIsSubmitting(true);
     const leads = validLeads.filter(l => leadIds.includes(l.id));
     let submitted = 0;
@@ -267,19 +261,6 @@ export default function CreateVideoPage() {
     setIsSubmitting(false);
   };
 
-  // ── API key save handlers ────────────────────────────────────────────────────
-
-  const saveKey = async (service: string, value: string, onDone: (key: string) => void) => {
-    if (!value.trim()) return;
-    setIsSavingKey(true);
-    try {
-      await saveApiKey(user!.id, service, value.trim());
-      toast.success('API key saved');
-      onDone(value.trim());
-    } catch { toast.error('Failed to save key'); }
-    finally { setIsSavingKey(false); }
-  };
-
   // ── UI helpers ───────────────────────────────────────────────────────────────
 
   const scriptsReady = Array.from(selectedIds).some(id => scripts[id]);
@@ -305,51 +286,46 @@ export default function CreateVideoPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Create Videos</h1>
-        <p className="text-muted-foreground mt-1">Generate personalised scripts with Gemini, then render with HeyGen</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Create Videos</h1>
+          <p className="text-muted-foreground mt-1">Generate personalised scripts with Gemini, then render with HeyGen</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => navigate('/dashboard/settings')}>
+          <Settings className="w-4 h-4 mr-2" />
+          API Settings
+        </Button>
       </div>
 
-      {/* Campaign config */}
+      {/* Campaign description only */}
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Sparkles className="w-5 h-5 text-primary" />Campaign Setup</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            Campaign Setup
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="space-y-1">
-            <label className="text-sm font-medium">Campaign Description <span className="text-destructive">*</span></label>
+            <label className="text-sm font-medium">
+              Campaign Description <span className="text-destructive">*</span>
+            </label>
             <Textarea
               placeholder="Describe what you offer. Gemini will use this to personalise each script. e.g. 'We help SaaS companies reduce churn by 40% using AI-powered onboarding...'"
               value={campaignDescription}
               onChange={e => setCampaignDescription(e.target.value)}
               rows={3}
             />
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">HeyGen Avatar ID</label>
-              <Input value={avatarId} onChange={e => setAvatarId(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">HeyGen Voice ID</label>
-              <Input value={voiceId} onChange={e => setVoiceId(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Gemini API Key</label>
-              <Input
-                type="password"
-                placeholder="AIza…"
-                value={geminiKeyField}
-                onChange={e => setGeminiKeyField(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">HeyGen API Key</label>
-              <Input
-                type="password"
-                placeholder="Your HeyGen API key"
-                value={heygenKeyField}
-                onChange={e => setHeygenKeyField(e.target.value)}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground pt-1">
+              API keys and avatar/voice IDs are loaded from{' '}
+              <button
+                className="underline text-primary hover:opacity-80"
+                onClick={() => navigate('/dashboard/settings')}
+              >
+                Settings
+              </button>
+              .
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -368,7 +344,9 @@ export default function CreateVideoPage() {
         </CardHeader>
         <CardContent>
           {validLeads.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-6">No valid leads yet — verify emails on the Leads page first.</p>
+            <p className="text-muted-foreground text-sm text-center py-6">
+              No valid leads yet — verify emails on the Leads page first.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -506,52 +484,6 @@ export default function CreateVideoPage() {
           </CardContent>
         </Card>
       )}
-
-      {/* Gemini API key dialog */}
-      <Dialog open={geminiDialog} onOpenChange={setGeminiDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Key className="w-5 h-5" />Gemini API Key</DialogTitle>
-            <DialogDescription>Enter your Google AI Studio API key for script generation.</DialogDescription>
-          </DialogHeader>
-          <Input placeholder="AIza..." value={geminiKeyInput} onChange={e => setGeminiKeyInput(e.target.value)} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setGeminiDialog(false)}>Cancel</Button>
-            <Button disabled={isSavingKey || !geminiKeyInput.trim()} onClick={() =>
-              saveKey('gemini', geminiKeyInput, key => {
-                setGeminiDialog(false);
-                setGeminiKeyInput('');
-                runScriptGeneration(Array.from(selectedIds), campaignDescription, key);
-              })
-            }>
-              {isSavingKey ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Save & Generate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* HeyGen API key dialog */}
-      <Dialog open={heygenDialog} onOpenChange={setHeygenDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Key className="w-5 h-5" />HeyGen API Key</DialogTitle>
-            <DialogDescription>Enter your HeyGen API key for video generation.</DialogDescription>
-          </DialogHeader>
-          <Input placeholder="Your HeyGen API key" value={heygenKeyInput} onChange={e => setHeygenKeyInput(e.target.value)} />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHeygenDialog(false)}>Cancel</Button>
-            <Button disabled={isSavingKey || !heygenKeyInput.trim()} onClick={() =>
-              saveKey('heygen', heygenKeyInput, key => {
-                setHeygenDialog(false);
-                setHeygenKeyInput('');
-                runHeygenSubmission(Array.from(selectedIds).filter(id => scripts[id]), key);
-              })
-            }>
-              {isSavingKey ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Save & Submit
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
