@@ -23,11 +23,11 @@ export default function DashboardHome() {
 
   useEffect(() => {
     if (user) {
-      const data = getAnalytics(user.id);
-      const acts = getActivities(user.id);
-      setAnalytics(data);
-      setActivities(acts);
-      setIsLoading(false);
+      getAnalytics(user.id).then(data => {
+        setAnalytics(data);
+        setActivities(getActivities(user.id));
+        setIsLoading(false);
+      });
     }
   }, [user]);
 

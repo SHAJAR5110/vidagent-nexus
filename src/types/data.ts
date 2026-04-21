@@ -1,22 +1,34 @@
 export interface Lead {
   id: string;
   userId: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   company: string;
-  domain: string;
-  status: 'uploaded' | 'processing' | 'verified' | 'failed';
+  website: string;
+  companyDescription: string;
+  status: 'uploaded' | 'verifying' | 'valid' | 'invalid';
+  verificationCode?: 'ok' | 'ko' | 'mb';
+  verificationMessage?: string;
+  mxServer?: string;
+  verifiedAt?: string;
   createdAt: string;
 }
 
 export interface Video {
   id: string;
   userId: string;
+  leadId: string;
   name: string;
   script: string;
-  avatar: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  avatarId?: string;
+  voiceId?: string;
+  heygenSessionId?: string;
+  heygenVideoId?: string;
+  status: 'pending' | 'generating_script' | 'script_ready' | 'processing' | 'completed' | 'failed';
   videoUrl?: string;
+  thumbnailUrl?: string;
+  errorMessage?: string;
   createdAt: string;
 }
 
