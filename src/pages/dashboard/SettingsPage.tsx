@@ -5,15 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle2, Key, Bot, Mic } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Loader2, CheckCircle2, Key, Bot, Sliders } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface KeyField {
   service: string;
   label: string;
   placeholder: string;
-  type?: string;
+  type?: 'text' | 'password';
   hint?: string;
+  selectOptions?: { value: string; label: string }[];
 }
 
 const API_KEY_FIELDS: KeyField[] = [
@@ -22,42 +26,78 @@ const API_KEY_FIELDS: KeyField[] = [
     label: 'Gemini API Key',
     placeholder: 'AIza…',
     type: 'password',
-    hint: 'Get it from Google AI Studio (aistudio.google.com)',
+    hint: 'Google AI Studio → Get API Key (aistudio.google.com)',
   },
   {
     service: 'heygen',
     label: 'HeyGen API Key',
     placeholder: 'Your HeyGen API key',
     type: 'password',
-    hint: 'Found in your HeyGen account → API settings',
+    hint: 'HeyGen Dashboard → Settings → API',
   },
 ];
 
-const CONFIG_FIELDS: KeyField[] = [
+const AVATAR_FIELDS: KeyField[] = [
   {
     service: 'heygen_avatar_id',
-    label: 'HeyGen Avatar ID',
-    placeholder: '03b55fe9b60a4584a0d5b507bcba060e',
-    hint: 'The avatar ID to use for all video renders',
+    label: 'Avatar ID',
+    placeholder: 'Hada_Suit_Sitting_Front_public',
+    hint: 'HeyGen Avatar Library → click an avatar → copy its ID',
   },
   {
+    service: 'heygen_avatar_style',
+    label: 'Avatar Style',
+    placeholder: 'circle',
+    hint: 'How the avatar appears in the frame',
+    selectOptions: [
+      { value: 'circle', label: 'Circle (floating bubble)' },
+      { value: 'closeup', label: 'Close-up' },
+      { value: 'normal', label: 'Normal (full torso)' },
+    ],
+  },
+  {
+    service: 'heygen_background_asset_id',
+    label: 'Background Video Asset ID',
+    placeholder: '5d10bc364e1846fcab6e79cf9f526f5d',
+    hint: 'Optional — HeyGen asset ID for background video. Leave blank for no background.',
+  },
+];
+
+const VOICE_FIELDS: KeyField[] = [
+  {
     service: 'heygen_voice_id',
-    label: 'HeyGen Voice ID',
-    placeholder: 'f255114308d841858d1ca9230bf83285',
-    hint: 'The voice ID to use for all video renders',
+    label: 'Voice ID',
+    placeholder: 'e7f265ef0dc7426e8ed217c58da7e371',
+    hint: 'HeyGen Voice Library → copy the voice ID',
+  },
+  {
+    service: 'heygen_voice_emotion',
+    label: 'Voice Emotion',
+    placeholder: 'Excited',
+    hint: 'Tone of the generated speech',
+    selectOptions: [
+      { value: 'Excited', label: 'Excited' },
+      { value: 'Friendly', label: 'Friendly' },
+      { value: 'Serious', label: 'Serious' },
+      { value: 'Soothing', label: 'Soothing' },
+      { value: 'Broadcaster', label: 'Broadcaster' },
+    ],
+  },
+  {
+    service: 'heygen_voice_speed',
+    label: 'Voice Speed',
+    placeholder: '1',
+    hint: '0.5 (slow) → 1 (normal) → 1.5 (fast)',
   },
 ];
 
 export default function SettingsPage() {
   const { user } = useAuth();
-
-  // values[service] = current input value
   const [values, setValues] = useState<Record<string, string>>({});
-  // saved[service] = whether a value is saved in DB
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
 
-  const allFields = [...API_KEY_FIELDS, ...CONFIG_FIELDS];
+  const allFields = [...API_KEY_FIELDS, ...AVATAR_FIELDS, ...VOICE_FIELDS];
 
   const loadKeys = useCallback(async () => {
     if (!user) return;
@@ -91,13 +131,15 @@ export default function SettingsPage() {
     }
   };
 
+  const setValue = (service: string, val: string) => {
+    setValues(prev => ({ ...prev, [service]: val }));
+    setSaved(prev => ({ ...prev, [service]: false }));
+  };
+
   const renderField = (field: KeyField) => {
     const isSaved = saved[field.service];
     const isSaving = saving[field.service];
-    const isDirty = (values[field.service] ?? '') !== '' &&
-      // consider dirty if user typed something different from what was loaded
-      // (we don't store the original; just check non-empty)
-      true;
+    const currentVal = values[field.service] ?? '';
 
     return (
       <div key={field.service} className="space-y-2">
@@ -113,19 +155,29 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">{field.hint}</p>
         )}
         <div className="flex gap-2">
-          <Input
-            type={field.type ?? 'text'}
-            placeholder={field.placeholder}
-            value={values[field.service] ?? ''}
-            onChange={e => {
-              setValues(prev => ({ ...prev, [field.service]: e.target.value }));
-              setSaved(prev => ({ ...prev, [field.service]: false }));
-            }}
-            className="flex-1 font-mono text-sm"
-          />
+          {field.selectOptions ? (
+            <Select value={currentVal} onValueChange={val => setValue(field.service, val)}>
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.selectOptions.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              type={field.type ?? 'text'}
+              placeholder={field.placeholder}
+              value={currentVal}
+              onChange={e => setValue(field.service, e.target.value)}
+              className="flex-1 font-mono text-sm"
+            />
+          )}
           <Button
             onClick={() => handleSave(field.service)}
-            disabled={isSaving || !values[field.service]?.trim()}
+            disabled={isSaving || !currentVal.trim()}
             size="sm"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
@@ -139,7 +191,7 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-muted-foreground mt-1">Configure your API keys and video defaults</p>
+        <p className="text-muted-foreground mt-1">Configure API keys and HeyGen video defaults</p>
       </div>
 
       {/* API Keys */}
@@ -150,7 +202,7 @@ export default function SettingsPage() {
             API Keys
           </CardTitle>
           <CardDescription>
-            Keys are stored securely per account and used automatically during video creation.
+            Stored securely per account. Used automatically during video creation.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -158,19 +210,35 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* HeyGen Configuration */}
+      {/* Avatar Config */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
-            HeyGen Configuration
+            Avatar Settings
           </CardTitle>
           <CardDescription>
-            Default avatar and voice used for every video render. Can be changed any time.
+            Controls which avatar appears and how it's positioned in the video.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {CONFIG_FIELDS.map(renderField)}
+          {AVATAR_FIELDS.map(renderField)}
+        </CardContent>
+      </Card>
+
+      {/* Voice Config */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sliders className="w-5 h-5 text-primary" />
+            Voice Settings
+          </CardTitle>
+          <CardDescription>
+            Controls the voice, emotion, and speed of the avatar speech.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {VOICE_FIELDS.map(renderField)}
         </CardContent>
       </Card>
     </div>
