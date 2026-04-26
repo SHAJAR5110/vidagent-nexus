@@ -236,7 +236,7 @@ export default function LeadsPage() {
       return;
     }
 
-    const apiKey = await getApiKey(user!.id, 'mailtester_ninja');
+    const apiKey = await getApiKey(user!.id, 'apify');
     if (!apiKey) {
       setShowKeyDialog(true);
       return;
@@ -295,7 +295,7 @@ export default function LeadsPage() {
     if (!apiKeyInput.trim()) return;
     setIsSavingKey(true);
     try {
-      await saveApiKey(user!.id, 'mailtester_ninja', apiKeyInput.trim());
+      await saveApiKey(user!.id, 'apify', apiKeyInput.trim());
       setShowKeyDialog(false);
       setApiKeyInput('');
       toast.success('API key saved');
@@ -636,10 +636,10 @@ export default function LeadsPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Key className="w-5 h-5" /> MailTester.Ninja API Key
+              <Key className="w-5 h-5" /> Apify API Token
             </DialogTitle>
             <DialogDescription>
-              Enter your MailTester.Ninja subscription key. It will be saved securely and reused for future verifications.
+              Enter your Apify API token. It will be saved securely and reused for future verifications.
             </DialogDescription>
           </DialogHeader>
           <Input

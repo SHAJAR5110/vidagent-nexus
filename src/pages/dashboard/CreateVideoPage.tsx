@@ -7,7 +7,7 @@ import {
   getApiKey, addActivity,
 } from '@/services/dataService';
 import { generateScriptForLead } from '@/services/scriptGenerationService';
-import { submitVideoPrompt, pollSession, pollVideo } from '@/services/videoGenerationService';
+import { generateVideo, pollVideoStatus } from '@/services/videoGenerationService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,28 +80,25 @@ export default function CreateVideoPage() {
     if (!apiKey) return;
 
     await Promise.all(processing.map(async (video) => {
+      if (!video.heygenVideoId) {
+        console.warn('[Poll] Skipping video — no heygenVideoId saved:', video.id);
+        return;
+      }
       try {
-        if (!video.heygenVideoId && video.heygenSessionId) {
-          const session = await pollSession(video.heygenSessionId, apiKey);
-          if (session.videoId) {
-            await updateVideo(video.id, { heygenVideoId: session.videoId });
-          }
-          if (session.status === 'failed') {
-            await updateVideo(video.id, { status: 'failed', errorMessage: 'HeyGen session failed' });
-          }
-        } else if (video.heygenVideoId) {
-          const result = await pollVideo(video.heygenVideoId, apiKey);
-          if (result.status === 'completed') {
-            await updateVideo(video.id, {
-              status: 'completed',
-              videoUrl: result.videoUrl,
-              thumbnailUrl: result.thumbnailUrl,
-            });
-          } else if (result.status === 'failed') {
-            await updateVideo(video.id, { status: 'failed', errorMessage: result.failureMessage });
-          }
+        const result = await pollVideoStatus(video.heygenVideoId, apiKey);
+        console.log('[Poll]', video.heygenVideoId, '→ status:', result.status);
+        if (result.status === 'completed') {
+          await updateVideo(video.id, {
+            status: 'completed',
+            videoUrl: result.videoUrl,
+            thumbnailUrl: result.thumbnailUrl,
+          });
+        } else if (result.status === 'failed') {
+          await updateVideo(video.id, { status: 'failed', errorMessage: result.error });
         }
-      } catch { /* keep polling */ }
+      } catch (e) {
+        console.error('[Poll] Error polling', video.heygenVideoId, e);
+      }
     }));
 
     const updated = await getVideos(user.id);
@@ -198,20 +195,32 @@ export default function CreateVideoPage() {
     const heygenKey = await requireKey('heygen', 'HeyGen API Key');
     if (!heygenKey) return;
 
-    const avatarId = await requireKey('heygen_avatar_id', 'HeyGen Avatar ID');
-    if (!avatarId) return;
-
     const voiceId = await requireKey('heygen_voice_id', 'HeyGen Voice ID');
     if (!voiceId) return;
 
-    runHeygenSubmission(toSubmit, heygenKey, avatarId, voiceId);
+    const avatarId = await getApiKey(user!.id, 'heygen_avatar_id');
+    const talkingPhotoId = await getApiKey(user!.id, 'heygen_talking_photo_id');
+    if (!avatarId && !talkingPhotoId) {
+      toast.error('Avatar ID or Talking Photo ID required', {
+        description: 'Add at least one in Settings.',
+        action: { label: 'Open Settings', onClick: () => navigate('/dashboard/settings') },
+      });
+      return;
+    }
+
+    runHeygenSubmission(toSubmit, heygenKey, voiceId, avatarId ?? undefined, talkingPhotoId ?? undefined).catch(e => {
+      console.error('[HeyGen] Unexpected error:', e);
+      toast.error(`Unexpected error: ${e instanceof Error ? e.message : String(e)}`);
+      setIsSubmitting(false);
+    });
   };
 
   const runHeygenSubmission = async (
     leadIds: string[],
     apiKey: string,
-    avatarId: string,
     voiceId: string,
+    avatarId?: string,
+    talkingPhotoId?: string,
   ) => {
     setIsSubmitting(true);
     const leads = validLeads.filter(l => leadIds.includes(l.id));
@@ -233,18 +242,50 @@ export default function CreateVideoPage() {
       };
 
       try {
-        const sessionId = await submitVideoPrompt(
-          script, apiKey,
-          { avatarId: avatarId || undefined, voiceId: voiceId || undefined },
+        console.log('[HeyGen] Submitting for', lead.email, { avatarId, talkingPhotoId, voiceId });
+
+        // Record the prospect's website and upload to HeyGen as background asset
+        let videoAssetId: string | undefined;
+        if (lead.website) {
+          console.log('[Recorder] Recording website:', lead.website);
+          const backendUrl = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
+          const recRes = await fetch(`${backendUrl}/api/recordings/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: lead.website, jobId: video.id, heygenApiKey: apiKey }),
+          });
+          if (!recRes.ok) {
+            const recErr = await recRes.json().catch(() => ({}));
+            throw new Error((recErr as { error?: string }).error ?? `Recording failed ${recRes.status}`);
+          }
+          const recData = await recRes.json() as { videoAssetId: string };
+          videoAssetId = recData.videoAssetId;
+          console.log('[Recorder] videoAssetId:', videoAssetId);
+        }
+
+        const videoId = await generateVideo(
+          {
+            avatarId: avatarId || undefined,
+            talkingPhotoId: talkingPhotoId || undefined,
+            voiceId: voiceId,
+            inputText: script,
+            videoAssetId,
+          },
+          apiKey,
         );
-        video.heygenSessionId = sessionId;
+        console.log('[HeyGen] Got video_id:', videoId);
+        video.heygenVideoId = videoId;
         await saveVideo(video);
         submitted++;
       } catch (e) {
+        const errMsg = e instanceof Error ? e.message : 'Submit failed';
+        console.error('[HeyGen] Error for', lead.email, errMsg);
         video.status = 'failed';
-        video.errorMessage = e instanceof Error ? e.message : 'Submit failed';
-        await saveVideo(video);
-        toast.error(`Failed for ${lead.firstName}: ${video.errorMessage}`);
+        video.errorMessage = errMsg;
+        toast.error(`Failed for ${lead.firstName}: ${errMsg}`);
+        try { await saveVideo(video); } catch (dbErr) {
+          console.error('[DB] saveVideo failed:', dbErr);
+        }
       }
     }
 

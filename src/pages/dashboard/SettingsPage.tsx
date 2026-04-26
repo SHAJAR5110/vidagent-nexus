@@ -18,6 +18,13 @@ interface KeyField {
 
 const API_KEY_FIELDS: KeyField[] = [
   {
+    service: 'apify',
+    label: 'Apify API Token',
+    placeholder: 'apify_api_…',
+    type: 'password',
+    hint: 'Found in your Apify account → Settings → Integrations. Used to verify prospect email addresses.',
+  },
+  {
     service: 'gemini',
     label: 'Gemini API Key',
     placeholder: 'AIza…',
@@ -31,6 +38,13 @@ const API_KEY_FIELDS: KeyField[] = [
     type: 'password',
     hint: 'Found in your HeyGen account → API settings',
   },
+  {
+    service: 'manyreach',
+    label: 'ManyReach API Key',
+    placeholder: 'Your ManyReach API key',
+    type: 'password',
+    hint: 'Found in your ManyReach account → Settings → API. Used to send outreach emails.',
+  },
 ];
 
 const CONFIG_FIELDS: KeyField[] = [
@@ -38,7 +52,13 @@ const CONFIG_FIELDS: KeyField[] = [
     service: 'heygen_avatar_id',
     label: 'HeyGen Avatar ID',
     placeholder: '03b55fe9b60a4584a0d5b507bcba060e',
-    hint: 'The avatar ID to use for all video renders',
+    hint: 'Avatar ID for video renders. If set, takes priority over Talking Photo ID.',
+  },
+  {
+    service: 'heygen_talking_photo_id',
+    label: 'HeyGen Talking Photo ID',
+    placeholder: 'e.g. talking_photo_abc123',
+    hint: 'Used when no Avatar ID is set. Upload a photo in HeyGen → Talking Photo to get this ID.',
   },
   {
     service: 'heygen_voice_id',

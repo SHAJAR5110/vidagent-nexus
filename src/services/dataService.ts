@@ -96,7 +96,7 @@ export async function getApiKey(userId: string, service: string): Promise<string
     .select('key_value')
     .eq('user_id', userId)
     .eq('service', service)
-    .single();
+    .maybeSingle();
   return data?.key_value ?? null;
 }
 
@@ -150,6 +150,7 @@ export async function saveVideo(video: Video): Promise<void> {
     script: video.script,
     avatar_id: video.avatarId,
     voice_id: video.voiceId,
+    heygen_video_id: video.heygenVideoId,
     status: video.status,
     created_at: video.createdAt,
   });

@@ -1,60 +1,95 @@
-interface MailTesterResponse {
+// Apify actor: account56~email-verifier (powered by MillionVerifier)
+// Endpoint accepts multiple emails per call — no per-email rate limit.
+const APIFY_ENDPOINT =
+  'https://api.apify.com/v2/acts/account56~email-verifier/run-sync-get-dataset-items';
+
+interface ApifyResultItem {
   email: string;
-  user: string;
-  domain: string;
-  mx: string;
-  code: 'ok' | 'ko' | 'mb';
-  message: string;
-  connections: number;
+  result: 'ok' | 'catch_all' | 'unknown' | 'error' | 'disposable' | 'invalid' | string;
+  quality: '' | 'good' | 'bad' | 'risky' | string;
+  subresult?: string;
+  free?: boolean;
+  role?: boolean;
+  error?: string;
 }
 
 export interface VerificationResult {
+  /** Normalised codes: ok=valid, ko=invalid/unknown, mb=catch-all */
   code: 'ok' | 'ko' | 'mb';
   message: string;
   mx: string;
   isValid: boolean;
 }
 
-// Only code=ok + message=Accepted is truly valid.
-// Catch-All (mb), Rejected/Timeout/No Mx/SPAM Block (ko) are all invalid.
-export async function verifyEmail(email: string, apiKey: string): Promise<VerificationResult> {
-  const url = `https://happy.mailtester.ninja/ninja?email=${encodeURIComponent(email)}&key=${encodeURIComponent(apiKey)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const data: MailTesterResponse = await response.json();
-  return {
-    code: data.code,
-    message: data.message,
-    mx: data.mx || '',
-    isValid: data.code === 'ok' && data.message === 'Accepted',
-  };
+function mapItem(item: ApifyResultItem): VerificationResult {
+  switch (item.result) {
+    case 'ok':
+      return { code: 'ok', message: item.result, mx: '', isValid: true };
+    case 'catch_all':
+      return { code: 'mb', message: item.result, mx: '', isValid: false };
+    default:
+      return { code: 'ko', message: item.result, mx: '', isValid: false };
+  }
+}
+
+// Runs one Apify actor call for up to `batchSize` emails and returns a
+// map of email → result. Results matched by email address (not index).
+async function verifyBatch(
+  emails: string[],
+  apiToken: string,
+): Promise<Map<string, VerificationResult>> {
+  const url = `${APIFY_ENDPOINT}?token=${encodeURIComponent(apiToken)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emails }),
+  });
+
+  if (!response.ok) throw new Error(`Apify HTTP ${response.status}`);
+
+  const raw = await response.json();
+  // Apify returns { items: [...] } or a bare array depending on version
+  const items: ApifyResultItem[] = Array.isArray(raw) ? raw : (raw.items ?? []);
+
+  const map = new Map<string, VerificationResult>();
+  for (const item of items) {
+    if (item.email) map.set(item.email.toLowerCase(), mapItem(item));
+  }
+  return map;
+}
+
+export async function verifyEmail(email: string, apiToken: string): Promise<VerificationResult> {
+  const map = await verifyBatch([email], apiToken);
+  return map.get(email.toLowerCase()) ?? { code: 'ko', message: 'no result', mx: '', isValid: false };
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Process emails in chunks, respecting the 11/10s rate limit.
-// 5 concurrent per 600ms = ~8/s, safely under the limit.
+// Sends emails in chunks of 25 per Apify call (actor handles bulk natively).
+// Small delay between chunks to avoid hammering the run endpoint.
 export async function verifyEmailsInBatches(
   emails: string[],
-  apiKey: string,
+  apiToken: string,
   onResult: (email: string, result: VerificationResult | null, error?: string) => void,
 ): Promise<void> {
-  const CHUNK_SIZE = 5;
-  const CHUNK_DELAY_MS = 600;
+  const CHUNK_SIZE = 25;
+  const CHUNK_DELAY_MS = 1000;
 
   for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
     const chunk = emails.slice(i, i + CHUNK_SIZE);
 
-    await Promise.all(
-      chunk.map(async (email) => {
-        try {
-          const result = await verifyEmail(email, apiKey);
-          onResult(email, result);
-        } catch (err) {
-          onResult(email, null, err instanceof Error ? err.message : 'Unknown error');
-        }
-      }),
-    );
+    try {
+      const map = await verifyBatch(chunk, apiToken);
+      for (const email of chunk) {
+        const result = map.get(email.toLowerCase()) ?? null;
+        onResult(email, result, result ? undefined : 'No result returned');
+      }
+    } catch (err) {
+      // If the whole batch fails, report error for each email in it
+      for (const email of chunk) {
+        onResult(email, null, err instanceof Error ? err.message : 'Batch error');
+      }
+    }
 
     if (i + CHUNK_SIZE < emails.length) {
       await delay(CHUNK_DELAY_MS);
